@@ -9,162 +9,114 @@
 <img src="https://img.shields.io/badge/licence-CC%20BY%204.0-8b96a8?style=flat-square&labelColor=07090f" alt="CC BY 4.0">
 </p>
 
-A technical analysis of **Randstorm** — a class of weak random-number-generation
-flaws in the browser Bitcoin wallets built on **BitcoinJS** (via the **JSBN**
-`SecureRandom()` routine) between roughly **2011 and 2015**. Because the private
-keys of affected wallets were produced with far less entropy than the 256 bits
-they should have, they fall within a searchable keyspace.
+A rigorous analysis of **Randstorm** — the family of weak random-number-generation
+flaws in browser Bitcoin wallets built on **BitcoinJS** (via the **JSBN**
+`SecureRandom()` routine) between **2011 and 2015**. The private keys of affected
+wallets were drawn from generators whose true entropy was a tiny fraction of the
+256 bits a Bitcoin key requires, collapsing the search space from astronomically
+large to, in the worst cases, **searchable on a laptop**.
 
-> **What this repository is — and is not.**
-> This is a **defensive write-up**: how the weakness worked, who it affected, how
-> to tell whether *your own* old wallet is at risk, and how to move funds to
-> safety. It contains **no exploit code, no key-recovery tooling, and no keyspace
-> generator.** Its purpose is to help people protect the wallets they own and to
-> help developers avoid repeating the mistake. Recovering the keys of a wallet
-> you do not own is theft, and nothing here is built to do it.
+This repository works the problem out in full: the entropy mathematics, the
+internal RNG of **every major browser engine of the era**, the exact seeding
+path through JSBN, and the timeline of when a cryptographically secure source
+became available in each browser.
 
----
-
-## TL;DR
-
-- Browser wallets generated **2011–2015** using BitcoinJS + JSBN may have keys
-  derived from a weak RNG that leaned on `Math.random()` instead of a
-  cryptographically secure source.
-- Wallets made **before ~March 2012 are the weakest**; the entropy improved over
-  time, so **2014–2015 wallets are much harder** but not always safe.
-- The flaw is **baked into the keys themselves** — it cannot be patched after the
-  fact. The only fix is to **move funds to a wallet created with modern,
-  trusted software.**
-- Published figure of exposure: **~1.4 million BTC** sat in potentially
-  affected wallets (Unciphered, November 2023).
-- **If you hold an old (pre-2016) browser-generated Bitcoin wallet, treat it as
-  at risk and move the funds now.** See [docs/02-CHECK-AND-REMEDIATE.md](docs/02-CHECK-AND-REMEDIATE.md).
+> **What this is, and is not.** A **defensive, quantitative write-up**: the
+> mathematics of *why* the keys are weak, the browser-engine history, and how to
+> protect wallets you own. It contains **no key-recovery code, no seed
+> reconstruction procedure, and no keyspace enumerator.** It explains the size of
+> the haystack; it does not hand anyone a machine for searching it. Recovering
+> keys to wallets you do not own is theft.
 
 ---
 
-## Why keys need real randomness
+## Abstract
 
-A Bitcoin private key is a 256-bit number. Its entire security rests on being
-**unpredictable**: chosen uniformly at random from a space so large (2²⁵⁶) that
-no one can search it. Address, signatures, everything downstream is derived from
-that one secret. If the *process* that picked the number can only reach a small
-fraction of the space — or can be replayed — then the key is guessable no matter
-how long it looks.
+A 256-bit ECDSA private key is secure only if it is drawn uniformly from
+$2^{256}$ possibilities. Randstorm-era wallets did not do this. They filled key
+material from JavaScript's `Math.random()` — a **non-cryptographic** PRNG — or
+from a mis-wired fallback, because the intended secure source
+(`window.crypto.getRandomValues`) was either absent in the browser or bypassed by
+a code defect. The result is that the reachable key space is bounded not by the
+256 bits of the key, but by the **internal state of the PRNG** (32–48 bits) and,
+worse, by the **entropy of that PRNG's seed** (often a timestamp, 22–35 bits).
+This document quantifies each bound, per browser, and shows how the exposure
+gradient tracks the ecosystem's adoption of real CSPRNGs across 2011–2015.
 
-Randstorm is what happens when the "random" in "random key" was not random
-enough.
-
----
-
-## The weakness, in one paragraph
-
-Early BitcoinJS produced key material through the **`SecureRandom()`** routine
-inherited from the **JSBN** library. In the browsers of the era it was meant to
-seed from the platform CSPRNG (`window.crypto`), but a combination of problems —
-a comparison/type bug that prevented the secure path from being used correctly,
-browsers that did not yet expose `window.crypto.getRandomValues`, and a fallback
-that gathered entropy from **`Math.random()`** plus a single medium-resolution
-timer reading — meant the effective entropy was **far below** even the ~48 bits
-of a typical browser `Math.random()` implementation. `Math.random()` in that
-period was commonly a 48-bit linear-congruential generator, itself unfit for key
-generation. BitcoinJS **discontinued JSBN in March 2014**, which is why the tail
-of the exposure window is 2014–2015 as the ecosystem migrated.
-
-The full technical treatment — the seeding path, why the entropy collapses, and
-why later wallets are harder — is in
-**[docs/01-TECHNICAL.md](docs/01-TECHNICAL.md)**.
+**Headline exposure (Unciphered, Nov 2023): ~1.4 million BTC** sat in
+potentially affected wallets.
 
 ---
 
-## Who is affected
+## The one-line theorem
 
-- **Wallets generated in-browser, 2011–2015**, by software built on the
-  vulnerable BitcoinJS/JSBN versions.
-- Confirmed to include **Blockchain.info** (now Blockchain.com) wallets of the
-  era, and, per the disclosure, "a multitude of wallets spanning several
-  blockchain platforms." Other libraries that copied the same `SecureRandom`
-  pattern inherit the flaw.
-- **Severity decreases over time within the window:** pre-March-2012 wallets are
-  the easiest to attack; 2014–2015 wallets are substantially harder.
+> The entropy of a generated key can never exceed the entropy of the process
+> that generated it.
 
-Not affected: keys generated by modern wallet software, hardware wallets, or any
-tool that uses a proper OS CSPRNG. This is a **historical** flaw — dangerous
-because those old keys still hold coins, not because current software makes it.
+Formally, if a key is a deterministic function $k = f(s)$ of a generator seed/state
+$s$ drawn from a set $S$, then the number of distinct keys is at most $|S|$, and
+the effective key entropy is
 
----
+$$H_{\text{eff}} = \min\bigl(256,\ \log_2 |S_{\text{state}}|,\ \log_2 |S_{\text{seed}}|\bigr)\ \text{bits.}$$
 
-## Scale
-
-Unciphered's November 2023 disclosure estimated that **roughly 1.4 million BTC**
-resided in wallets that could be affected. Independent reporting framed the
-directly-at-risk subset in the **billion-dollar** range. The exact exploitable
-fraction depends on the wallet's creation date and the software version, and is
-not a single fixed number — the point is that the exposure is large and real,
-not that every old wallet is trivially crackable.
+Every number in this report is an instance of that inequality. The full
+derivation and worked bit-budgets are in
+[docs/02-ENTROPY-MATH.md](docs/02-ENTROPY-MATH.md).
 
 ---
 
-## Timeline
+## What collapses the space (summary)
 
-| When | Event |
-|---|---|
-| 2011 | BitcoinJS-based browser wallets begin using JSBN `SecureRandom()` |
-| ~2011–2012 | Weakest wallets generated (lowest effective entropy) |
-| Mar 2014 | BitcoinJS discontinues JSBN |
-| Apr 2018 | Weakness first flagged publicly by researcher "ketamine" on the bitcoin-dev mailing list |
-| Jan 2022 | Rediscovered and investigated by Unciphered |
-| Nov 2023 | Public disclosure as **"Randstorm"** |
+| Layer | Ideal | Randstorm reality | Ref |
+|---|---|---|---|
+| Key length | $2^{256}$ | unchanged (the key *looks* 256-bit) | — |
+| PRNG internal state | n/a (CSPRNG) | **32 bits** (V8 MWC1616 distinct outputs) · **48 bits** (Firefox/IE LCG) · tiny (Safari GameRand) | [03](docs/03-BROWSER-RNG.md) |
+| PRNG seed | n/a | often a **timestamp**: ~$2^{35}$ (year) → ~$2^{26}$ (day) → ~$2^{22}$ (hour) | [02](docs/02-ENTROPY-MATH.md) |
+| Secure source available? | yes | **frequently no** before 2013 (see CSPRNG timeline) | [05](docs/05-CSPRNG-TIMELINE.md) |
 
-No CVE identifier was assigned.
-
----
-
-## Why it can't be patched
-
-You cannot fix a key that was already generated. The weakness is not in software
-you can update — it is frozen into the private keys that came out of that
-software years ago. Upgrading your wallet app does nothing for an existing key.
-The only remediation is to **generate a fresh wallet with trusted modern
-software and move the funds to it.**
+The effective security is the **minimum** of those rows — which is why some
+2011–2012 wallets have on the order of **$2^{25}$–$2^{35}$** real entropy instead
+of $2^{256}$.
 
 ---
 
 ## Documentation
 
-| | |
+| Chapter | Contents |
 |---|---|
-| [docs/01-TECHNICAL.md](docs/01-TECHNICAL.md) | The RNG failure in depth — seeding path, `Math.random()` entropy, why later wallets are harder |
-| [docs/02-CHECK-AND-REMEDIATE.md](docs/02-CHECK-AND-REMEDIATE.md) | Are you affected? How to check safely and move funds |
-| [docs/03-FOR-DEVELOPERS.md](docs/03-FOR-DEVELOPERS.md) | Generating keys correctly — CSPRNG practice and anti-patterns |
-| [docs/04-REFERENCES.md](docs/04-REFERENCES.md) | Primary sources and further reading |
+| [01 — Cryptographic background](docs/01-BACKGROUND.md) | ECDSA keys, where entropy enters, min-entropy vs Shannon entropy |
+| [02 — Entropy mathematics](docs/02-ENTROPY-MATH.md) | The ceiling theorem, seed/state bounds, timestamp bit-budgets, expected-work tables |
+| [03 — Browser RNG internals](docs/03-BROWSER-RNG.md) | V8 MWC1616, SpiderMonkey LCG, JavaScriptCore GameRand, IE — algorithms, state sizes, switch dates |
+| [04 — JSBN SecureRandom](docs/04-JSBN-SECURERANDOM.md) | The ARC4 pool, the intended seeding, and the defect that dropped it to `Math.random` |
+| [05 — CSPRNG availability timeline](docs/05-CSPRNG-TIMELINE.md) | When `getRandomValues` shipped in each browser, and the 2011–2015 exposure gradient |
+| [06 — Check & remediate](docs/06-CHECK-AND-REMEDIATE.md) | Are *your* wallets affected? How to check safely and move funds |
+| [07 — For developers](docs/07-FOR-DEVELOPERS.md) | Correct key generation, fail-closed design, anti-patterns |
+| [08 — References](docs/08-REFERENCES.md) | Primary sources and further reading |
 
 ---
 
 ## Funding
 
 Independent security research, published so the people affected can protect
-themselves. If it is useful to you:
+themselves.
 
 <img src="assets/donate.svg" alt="Donate Bitcoin — 1Be6LLAEndprdWKiH6YM62setFQRXJzfha" width="440">
 
 `1Be6LLAEndprdWKiH6YM62setFQRXJzfha` — mainnet P2PKH. **Verify before sending:**
 open an issue and ask me to confirm the address, and check the first and last
-four characters (`1Be6` … `zfha`).
-
-Nothing here is an investment offer and no return of any kind is implied.
+four characters (`1Be6` … `zfha`). Nothing here is an investment offer and no
+return of any kind is implied.
 
 ---
 
 ## Disclaimer & scope
 
-This material is for **defensive and educational** purposes: protecting wallets
-you own and helping developers not repeat the mistake. It documents a
-publicly-disclosed vulnerability using public sources. It contains no code to
-recover keys or enumerate the weak keyspace. Do not use this information to
-access wallets you do not own — doing so is theft and a crime in essentially
-every jurisdiction.
+Defensive and educational. Documents a publicly-disclosed vulnerability using
+public sources and first-principles cryptographic analysis. No code to recover
+keys or enumerate the weak keyspace is included. Do not use this information to
+access wallets you do not own.
 
 ## License
 
-Written analysis licensed **CC BY 4.0** — see [LICENSE](LICENSE). Cite as:
+Written analysis under **CC BY 4.0** — see [LICENSE](LICENSE). Cite as:
 *Solitech, "Randstorm: weak-RNG in 2011–2015 browser Bitcoin wallets," 2026.*
