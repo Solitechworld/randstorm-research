@@ -122,7 +122,7 @@ the public.
   recovery platform,
 - and only for use on addresses their clients are **authorised to recover**.
 
-**Licensing starts at USD $50,000.** This is not a symbolic price: it filters
+**Licensing starts at 1BTC .** This is not a symbolic price: it filters
 for organisations with a real engagement pipeline, covers the cost of the
 hardware the tool demands, and reflects that the withheld components (§9.6)
 are the product. Hobbyists, resellers, and "individual researchers" need not
