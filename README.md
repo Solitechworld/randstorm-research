@@ -22,11 +22,15 @@ path through JSBN, and the timeline of when a cryptographically secure source
 became available in each browser.
 
 > **What this is, and is not.** A **defensive, quantitative write-up**: the
-> mathematics of *why* the keys are weak, the browser-engine history, and how to
-> protect wallets you own. It contains **no key-recovery code, no seed
-> reconstruction procedure, and no keyspace enumerator.** It explains the size of
-> the haystack; it does not hand anyone a machine for searching it. Recovering
-> keys to wallets you do not own is theft.
+> mathematics of *why* the keys are weak, the browser-engine history, how to
+> protect wallets you own, and — new in chapter 9 — the **search economics**:
+> what a keyspace sweep actually costs on modern hardware. It contains **no
+> key-recovery code, no seed reconstruction procedure, and no keyspace
+> enumerator.** It explains the size of the haystack; it does not hand anyone a
+> machine for searching it. Recovering keys to wallets you do not own is theft.
+> The parts of a working sweep that are deliberately **withheld** from this
+> public material are itemised transparently in the
+> [redaction ledger](docs/09-SEARCH-ECONOMICS.md#96-the-redaction-ledger).
 
 ---
 
@@ -92,6 +96,42 @@ of $2^{256}$.
 | [06 — Check & remediate](docs/06-CHECK-AND-REMEDIATE.md) | Are *your* wallets affected? How to check safely and move funds |
 | [07 — For developers](docs/07-FOR-DEVELOPERS.md) | Correct key generation, fail-closed design, anti-patterns |
 | [08 — References](docs/08-REFERENCES.md) | Primary sources and further reading |
+| [09 — Search economics](docs/09-SEARCH-ECONOMICS.md) | What a sweep costs: per-candidate anatomy, measured GPU throughputs, the kangaroo fallacy, redaction ledger |
+
+---
+
+## Private reference implementation (licensing)
+
+The research here is complete enough to audit; it is deliberately incomplete as
+a capability. The **complete capability exists** — and it is not for sale to
+the public.
+
+> **Status: a 100% working, tested private implementation for Linux + NVIDIA
+> CUDA exists.** It implements the full sweep end-to-end — validated against a
+> live-browser capture, with multi-GPU scheduling, crash-safe checkpointing,
+> and CPU-verified results — and has been **tested and confirmed working on
+> real NVIDIA hardware** (RTX 3090 / 4090 class, multiple GPUs).
+
+**It will not be released publicly.** It is available **only** to:
+
+- **registered, verifiable companies** in the legitimate key-recovery /
+  digital-asset-forensics business (registration documents and references
+  required),
+- with **serious computational resources** — the sweep genuinely needs them
+  (see [chapter 9](docs/09-SEARCH-ECONOMICS.md)); a single gaming GPU is not a
+  recovery platform,
+- and only for use on addresses their clients are **authorised to recover**.
+
+**Licensing starts at USD $50,000.** This is not a symbolic price: it filters
+for organisations with a real engagement pipeline, covers the cost of the
+hardware the tool demands, and reflects that the withheld components (§9.6)
+are the product. Hobbyists, resellers, and "individual researchers" need not
+inquire; there is no cheaper tier.
+
+To open a licensing conversation: **open a GitHub issue in this repository**
+marked `licensing` (initial contact stays on the record; substantive discussion
+moves to private channels under NDA). Verified buyers receive the private
+repository, deployment documentation, benchmark harnesses, and support.
 
 ---
 
